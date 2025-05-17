@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import re
+import requests
 import pandas as pd
 from datetime import datetime
 from flask_cors import CORS
@@ -165,20 +166,57 @@ def summary_report():
 df['minute'] = df['time'].dt.strftime('%Y-%m-%d %H:%M')
 df['status_category'] = df['status'] // 100 * 100
 
-# 🚨 IP spike detection
+
+
+IPINFO_TOKEN = 'e1188bd09c6e03'  # replace with your real token
+
+def get_ip_location(ip):
+    try:
+        url = f"https://ipinfo.io/{ip}?token={IPINFO_TOKEN}"
+        response = requests.get(url, timeout=2)
+        if response.status_code == 200:
+            data = response.json()
+            loc = data.get("loc", ",").split(",")  # 'lat,long' format
+            return data.get('country')+","+ data.get('city'),
+
+                # 'city': data.get('city'),
+                # 'region': data.get('region'),
+                # 'latitude': float(loc[0]) if loc[0] else None,
+                # 'longitude': float(loc[1]) if len(loc) > 1 else None
+            
+    except Exception as e:
+        print(f"IPINFO lookup failed for {ip}: {e}")
+    return {
+        'city': None, 'region': None, 'country': None,
+        'latitude': None, 'longitude': None
+    }
+
 @app.route("/anomalies/ip-spike")
 def detect_ip_spike():
-    threshold = int(request.args.get("threshold", 3))  # requests per minute
+    threshold = int(request.args.get("threshold", 3))
     ip_minute_counts = df.groupby(['ip', 'minute']).size().reset_index(name='count')
     spikes = ip_minute_counts[ip_minute_counts['count'] > threshold]
-    return jsonify(spikes.to_dict(orient='records'))
+
+    enriched = []
+    for _, row in spikes.iterrows():
+        ip = row['ip']
+        location = get_ip_location(ip)
+
+        enriched.append({
+            'ip': ip,
+            'minute': row['minute'],
+            'count': row['count'],
+            'location': location[0]
+        })
+
+    return jsonify(enriched)
 
 # 🔥 Error burst detection (4xx/5xx)
 @app.route("/anomalies/error-burst")
 def detect_error_burst():
     errors = df[df['status_category'].isin([400, 500])]
     burst = errors.groupby('minute').size().reset_index(name='error_count')
-    burst = burst[burst['error_count'] > 2]  # tweak threshold
+    burst = burst[burst['error_count'] > 15]  # tweak threshold
     return jsonify(burst.to_dict(orient='records'))
 
 # 🎯 Hot path detection (rare URLs that spike)
