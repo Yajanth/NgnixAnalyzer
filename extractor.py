@@ -1,9 +1,6 @@
-from flask import Flask, request, jsonify
 import re
 import pandas as pd
 from datetime import datetime
-
-app = Flask(__name__)
 
 # Regex to parse log lines
 log_pattern = re.compile(
@@ -35,39 +32,18 @@ with open(file_name) as f:
 # Create DataFrame
 df = pd.DataFrame(parsed)
 
-# Fix timezone formatting
-def fix_timezone_format(dt_str):
-    import re
-    match = re.match(r'^(.+?)([+-]\d{4})$', dt_str.strip())
-    if match:
-        return f"{match.group(1).strip()} {match.group(2)}"
-    return dt_str
-
-# Endpoint: filter by URL and optional method
-@app.route('/byUrl')
-def byUrl():
-    reqUrl = request.args.get('reqUrl')
-    reqMethord = request.args.get('reqMethord')  # intentionally kept typo to match your original code
-
-    if reqUrl and reqMethord:
-        df_by_url = df[(df["url"] == reqUrl) & (df["method"] == reqMethord)]
-    elif reqUrl:
-        df_by_url = df[df["url"] == reqUrl]
-    else:
-        return jsonify({"error": "NO URL PROVIDED"}), 400
-
-    result = df_by_url[['ip', 'time', 'status']].copy()
-    result['time'] = result['time'].astype(str)
-    return jsonify(result.to_dict(orient='records'))
-
-# Endpoint: filter by time range
-@app.route("/timeframe")
-def byTimeFrame():
-    from_time_str = request.args.get("from")
-    to_time_str = request.args.get("to")
-
+# Function to filter logs by time frame
+def byTimeFrame(from_time_str, to_time_str):
     if not from_time_str or not to_time_str:
-        return jsonify({"error": "Both 'from' and 'to' query parameters are required"}), 400
+        return {"error": "Both 'from' and 'to' query parameters are required"}
+
+    # Ensure timezone offset has a space (e.g., "+0100" -> " +0100")
+    def fix_timezone_format(s):
+        import re
+        match = re.match(r'^(.+?)([+-]\d{4})$', s.strip())
+        if match:
+            return f"{match.group(1).strip()} {match.group(2)}"
+        return s
 
     from_time_str = fix_timezone_format(from_time_str)
     to_time_str = fix_timezone_format(to_time_str)
@@ -75,22 +51,21 @@ def byTimeFrame():
     try:
         from_time = datetime.strptime(from_time_str, '%d/%b/%Y:%H:%M:%S %z')
         to_time = datetime.strptime(to_time_str, '%d/%b/%Y:%H:%M:%S %z')
-        print(from_time,"\n",to_time)
     except ValueError:
-        return jsonify({
+        return {
             "error": "Invalid datetime format. Use format like 17/Apr/2025:05:19:27 +0100"
-        }), 400
+        }
 
     df_filtered = df[(df['time'] >= from_time) & (df['time'] <= to_time)]
 
     if df_filtered.empty:
-        return jsonify({"message": "No records found in the given timeframe"}), 404
+        return {"message": "No records found in the given timeframe"}
 
     result = df_filtered[['ip', 'url', 'method', 'time']].copy()
     result['time'] = result['time'].astype(str)
+    return result.to_dict(orient='records')
 
-    return jsonify(result.to_dict(orient='records'))
+# Test the function
+output = byTimeFrame("17/Apr/2025:05:15:00+0100", "17/Apr/2025:05:17:00+0100")
+print(output)
 
-# Run Flask
-if __name__ == '__main__':
-    app.run(debug=True)
