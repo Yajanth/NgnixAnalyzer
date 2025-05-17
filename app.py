@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import re
 import pandas as pd
 from datetime import datetime
+from flask_cors import CORS
 
 app = Flask(__name__)
 
@@ -42,7 +43,7 @@ def fix_timezone_format(dt_str):
     if match:
         return f"{match.group(1).strip()} {match.group(2)}"
     return dt_str
-
+CORS(app)
 # Endpoint: filter by URL and optional method
 @app.route('/byUrl')
 def byUrl():
